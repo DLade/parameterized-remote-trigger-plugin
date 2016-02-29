@@ -11,6 +11,7 @@ import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -117,16 +118,7 @@ public class RemoteBuildConfiguration extends Builder {
             this.loadParamsFromFile = false;
             this.parameters = parameters;
         }
-
-        // TODO: clean this up a bit
-        // split the parameter-string into an array based on the new-line
-        // character
-        final String[] params = parameters.split("\n");
-
-        // convert the String array into a List of Strings, and remove any empty
-        // entries
-        this.parameterList = new ArrayList<String>(Arrays.asList(params));
-
+        this.parameterList = extractParameters(parameters.split("\n"));
     }
 
     public RemoteBuildConfiguration(final String remoteJenkinsName,
@@ -148,15 +140,19 @@ public class RemoteBuildConfiguration extends Builder {
         this.auth.replaceBy(new Auth(null));
 
         this.loadParamsFromFile = false;
+        this.parameterList = extractParameters(parameters.split("\n"));
+    }
 
-        // split the parameter-string into an array based on the new-line
-        // character
-        final String[] params = parameters.split("\n");
-
-        // convert the String array into a List of Strings, and remove any empty
-        // entries
-        this.parameterList = new ArrayList<String>(Arrays.asList(params));
-
+    private static List<String> extractParameters(final String... parameters) {
+        final List<String> parameterList = new ArrayList<String>();
+        for (final String parameter : parameters) {
+            final String trimmedParameter = parameter.trim();
+            if (trimmedParameter.isEmpty()) {
+                continue;
+            }
+            parameterList.add(trimmedParameter);
+        }
+        return parameterList;
     }
 
     /**
@@ -165,40 +161,34 @@ public class RemoteBuildConfiguration extends Builder {
      * @param build
      * @return List<String> of build parameters
      */
-    private List<String> loadExternalParameterFile(final AbstractBuild<?, ?> build) {
-
+    private List<String> loadExternalParameterFile(final AbstractBuild<?, ?> build,
+            final BuildListener listener) {
         final FilePath workspace = build.getWorkspace();
+        final String filePath = workspace + getParameterFile();
+
         BufferedReader br = null;
         final List<String> ParameterList = new ArrayList<String>();
         try {
-
-            final String filePath = workspace + this.getParameterFile();
-            String sCurrentLine;
-            final String fileContent = "";
-
             br = new BufferedReader(new FileReader(filePath));
+            listener.getLogger().println("Read parameter file: " + getParameterFile());
 
+            String sCurrentLine;
             while ((sCurrentLine = br.readLine()) != null) {
                 // fileContent += sCurrentLine;
                 ParameterList.add(sCurrentLine);
             }
-
-            // ParameterList = new
-            // ArrayList<String>(Arrays.asList(fileContent));
-
+        } catch (final FileNotFoundException e) {
+            listener.getLogger().println("Parameter file not found! (" + getParameterFile() + ")");
         } catch (final IOException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
+            e.printStackTrace(listener.getLogger());
         } finally {
             try {
                 if (br != null) {
                     br.close();
                 }
             } catch (final IOException ex) {
-                ex.printStackTrace();
             }
         }
-        // FilePath.
         return getCleanedParameters(ParameterList);
     }
 
@@ -474,7 +464,7 @@ public class RemoteBuildConfiguration extends Builder {
     }
 
     @Override
-    public boolean perform(final AbstractBuild build, final Launcher launcher,
+    public boolean perform(final AbstractBuild<?, ?> build, final Launcher launcher,
             final BuildListener listener)
                     throws InterruptedException, IOException, IllegalArgumentException {
 
@@ -491,7 +481,7 @@ public class RemoteBuildConfiguration extends Builder {
         List<String> cleanedParams = null;
 
         if (this.getLoadParamsFromFile()) {
-            cleanedParams = loadExternalParameterFile(build);
+            cleanedParams = loadExternalParameterFile(build, listener);
         } else {
             // tokenize all variables and encode all variables, then build the
             // fully-qualified trigger URL
@@ -511,7 +501,7 @@ public class RemoteBuildConfiguration extends Builder {
         // print out some debugging information to the console
 
         // listener.getLogger().println("URL: " + triggerUrlString);
-        listener.getLogger().println("Triggering this remote job: " + jobName);
+        listener.getLogger().println("Triggering remote job: " + jobName);
 
         // get the ID of the Next Job to run.
         if (this.getPreventRemoteBuildQueue()) {
@@ -579,8 +569,8 @@ public class RemoteBuildConfiguration extends Builder {
                             + this.getRemoteJenkinsName() + "]");
         }
 
-        listener.getLogger().println("Triggering remote job now.");
-        sendHTTPCall(triggerUrlString, (isRemoteParameterized) ? "POST" : "GET", build, listener);
+        listener.getLogger().println("Triggering remote job now (" + triggerUrlString + " (GET)).");
+        sendHTTPCall(triggerUrlString, "GET", build, listener);
 
         if (isRemoteParameterized) {
             // Validate the build number via parameters
@@ -772,7 +762,7 @@ public class RemoteBuildConfiguration extends Builder {
         return true;
     }
 
-    public String getBuildStatus(final String buildUrlString, final AbstractBuild build,
+    public String getBuildStatus(final String buildUrlString, final AbstractBuild<?, ?> build,
             final BuildListener listener) throws IOException {
         String buildStatus = "UNKNOWN";
 
@@ -814,7 +804,7 @@ public class RemoteBuildConfiguration extends Builder {
         return buildStatus;
     }
 
-    public String getBuildUrl(final String buildUrlString, final AbstractBuild build,
+    public String getBuildUrl(final String buildUrlString, final AbstractBuild<?, ?> build,
             final BuildListener listener) throws IOException {
         String buildUrl = "";
 
@@ -850,7 +840,7 @@ public class RemoteBuildConfiguration extends Builder {
     }
 
     public String getConsoleOutput(final String urlString, final String requestType,
-            final AbstractBuild build, final BuildListener listener) throws IOException {
+            final AbstractBuild<?, ?> build, final BuildListener listener) throws IOException {
 
         return getConsoleOutput(urlString, requestType, build, listener, 1);
     }
@@ -870,13 +860,13 @@ public class RemoteBuildConfiguration extends Builder {
      * @throws IOException
      */
     public JSONObject sendHTTPCall(final String urlString, final String requestType,
-            final AbstractBuild build, final BuildListener listener) throws IOException {
+            final AbstractBuild<?, ?> build, final BuildListener listener) throws IOException {
 
         return sendHTTPCall(urlString, requestType, build, listener, 1);
     }
 
     public String getConsoleOutput(final String urlString, final String requestType,
-            final AbstractBuild build, final BuildListener listener, int numberOfAttempts)
+            final AbstractBuild<?, ?> build, final BuildListener listener, int numberOfAttempts)
                     throws IOException {
         final RemoteJenkinsServer remoteServer = this.findRemoteHost(this.getRemoteJenkinsName());
         final int retryLimit = this.getConnectionRetryLimit();
@@ -1006,7 +996,7 @@ public class RemoteBuildConfiguration extends Builder {
      * @throws IOException
      */
     public JSONObject sendHTTPCall(final String urlString, final String requestType,
-            final AbstractBuild build, final BuildListener listener, int numberOfAttempts)
+            final AbstractBuild<?, ?> build, final BuildListener listener, int numberOfAttempts)
                     throws IOException {
         final RemoteJenkinsServer remoteServer = this.findRemoteHost(this.getRemoteJenkinsName());
         final int retryLimit = this.getConnectionRetryLimit();
@@ -1088,15 +1078,12 @@ public class RemoteBuildConfiguration extends Builder {
             // But in newer versions of Jenkins, it just returns an empty
             // response.
             // So we need to compensate and check for both.
-            if (JSONUtils.mayBeJSON(response.toString()) == false) {
+            if (JSONUtils.mayBeJSON(response.toString())) {
+                responseObject = (JSONObject) JSONSerializer.toJSON(response.toString());
+            } else {
                 listener.getLogger().println(
                         "Remote Jenkins server returned empty response or invalid JSON - but we can still proceed with the remote build.");
-                listener.getLogger().println(response.toString());
-                return null;
-            } else {
-                responseObject = (JSONObject) JSONSerializer.toJSON(response.toString());
             }
-
         } catch (final IOException e) {
             listener.getLogger().println(e.getMessage());
             // If we have connectionRetryLimit set to > 0 then retry that many
@@ -1157,10 +1144,9 @@ public class RemoteBuildConfiguration extends Builder {
         String cleanValue = "";
 
         try {
-            cleanValue = URLEncoder.encode(dirtyValue, "UTF-8").replace("+", "%20");
+            cleanValue = URLEncoder.encode(dirtyValue, StandardCharsets.UTF_8.name()).replace("+",
+                    "%20");
         } catch (final UnsupportedEncodingException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
         }
 
         return cleanValue;
@@ -1215,21 +1201,6 @@ public class RemoteBuildConfiguration extends Builder {
     }
 
     /**
-     * Based on the number of parameters set (and only on params set), returns the proper URL string
-     *
-     * @return A string which represents a portion of the build URL
-     */
-    private String getBuildTypeUrl() {
-        final boolean isParameterized = (this.getParameters().length() > 0);
-
-        if (isParameterized) {
-            return RemoteBuildConfiguration.paramerizedBuildUrl;
-        } else {
-            return RemoteBuildConfiguration.normalBuildUrl;
-        }
-    }
-
-    /**
      * Same as above, but takes in to consideration if the remote server has any default parameters set or not
      *
      * @param isRemoteJobParameterized
@@ -1261,7 +1232,7 @@ public class RemoteBuildConfiguration extends Builder {
      *            listner object
      * @return true if the remote job has default parameters set, otherwise false
      */
-    private boolean isRemoteJobParameterized(final String jobName, final AbstractBuild build,
+    private boolean isRemoteJobParameterized(final String jobName, final AbstractBuild<?, ?> build,
             final BuildListener listener) {
         // build the proper URL to inspect the remote job
         final RemoteJenkinsServer remoteServer = this.findRemoteHost(this.getRemoteJenkinsName());
@@ -1360,6 +1331,7 @@ public class RemoteBuildConfiguration extends Builder {
          * public FormValidation doCheckName(@QueryParameter String value) throws IOException, ServletException { if (value.length() == 0) return FormValidation.error("Please set a name"); if (value.length() < 4) return FormValidation.warning("Isn't the name too short?"); return FormValidation.ok(); }
          */
 
+        @SuppressWarnings("rawtypes")
         @Override
         public boolean isApplicable(final Class<? extends AbstractProject> aClass) {
             // Indicates that this builder can be used with all kinds of project
