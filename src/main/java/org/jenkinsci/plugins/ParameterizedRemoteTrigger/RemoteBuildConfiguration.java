@@ -711,10 +711,14 @@ public class RemoteBuildConfiguration extends Builder {
 
             // If build did not finish with 'success' then fail build step.
             if (!buildStatusStr.equals("SUCCESS")) {
-                // failBuild will check if the 'shouldNotFailBuild' parameter is
-                // set or not, so will decide how to
-                // handle the failure.
-                this.failBuild(new Exception("The remote job did not succeed."), listener);
+                listener.error("Remote build failed for the following reason:");
+                listener.error("The remote job did not succeed.");
+
+                if (this.getShouldNotFailBuild()) {
+                    build.setResult(Result.UNSTABLE);
+                } else {
+                    throw new AbortException("The remote job did not succeed.");
+                }
             }
         } else {
             listener.getLogger().println(
