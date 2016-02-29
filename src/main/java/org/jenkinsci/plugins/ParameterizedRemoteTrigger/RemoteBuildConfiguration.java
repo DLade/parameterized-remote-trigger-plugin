@@ -580,47 +580,50 @@ public class RemoteBuildConfiguration extends Builder {
         }
 
         listener.getLogger().println("Triggering remote job now.");
-        sendHTTPCall(triggerUrlString, "POST", build, listener);
-        // Validate the build number via parameters
-        foundIt: for (int tries = 3; tries > 0; tries--) {
-            for (final int buildNumber : new SearchPattern(nextBuildNumber, 2)) {
-                listener.getLogger().println("Checking parameters of #" + buildNumber);
-                final String validateUrlString = this.buildGetUrl(jobName, securityToken) + "/"
-                        + buildNumber + "/api/json/";
-                final JSONObject validateResponse = sendHTTPCall(validateUrlString, "GET", build,
-                        listener);
-                if (validateResponse == null) {
-                    listener.getLogger().println("Query failed.");
-                    continue;
-                }
-                final JSONArray actions = validateResponse.getJSONArray("actions");
-                for (int i = 0; i < actions.size(); i++) {
-                    final JSONObject action = actions.getJSONObject(i);
-                    if (!action.has("parameters")) {
+        sendHTTPCall(triggerUrlString, (isRemoteParameterized) ? "POST" : "GET", build, listener);
+
+        if (isRemoteParameterized) {
+            // Validate the build number via parameters
+            foundIt: for (int tries = 3; tries > 0; tries--) {
+                for (final int buildNumber : new SearchPattern(nextBuildNumber, 2)) {
+                    listener.getLogger().println("Checking parameters of #" + buildNumber);
+                    final String validateUrlString = this.buildGetUrl(jobName, securityToken) + "/"
+                            + buildNumber + "/api/json/";
+                    final JSONObject validateResponse = sendHTTPCall(validateUrlString, "GET",
+                            build, listener);
+                    if (validateResponse == null) {
+                        listener.getLogger().println("Query failed.");
                         continue;
                     }
-                    final JSONArray parameters = action.getJSONArray("parameters");
-                    // Check if the parameters match
-                    if (compareParameters(listener, parameters, cleanedParams)) {
-                        // We now have a very high degree of confidence that
-                        // this is the correct build.
-                        // It is still possible that this is a false positive if
-                        // there are no parameters,
-                        // or multiple jobs use the same parameters.
-                        nextBuildNumber = buildNumber;
-                        break foundIt;
+                    final JSONArray actions = validateResponse.getJSONArray("actions");
+                    for (int i = 0; i < actions.size(); i++) {
+                        final JSONObject action = actions.getJSONObject(i);
+                        if (!action.has("parameters")) {
+                            continue;
+                        }
+                        final JSONArray parameters = action.getJSONArray("parameters");
+                        // Check if the parameters match
+                        if (compareParameters(listener, parameters, cleanedParams)) {
+                            // We now have a very high degree of confidence that
+                            // this is the correct build.
+                            // It is still possible that this is a false positive if
+                            // there are no parameters,
+                            // or multiple jobs use the same parameters.
+                            nextBuildNumber = buildNumber;
+                            break foundIt;
+                        }
+                        // This is the wrong build
+                        break;
                     }
-                    // This is the wrong build
-                    break;
-                }
 
-                // Sleep for 'pollInterval' seconds.
-                // Sleep takes miliseconds so need to convert this.pollInterval
-                // to milisecopnds (x 1000)
-                try {
-                    Thread.sleep(this.pollInterval * 1000);
-                } catch (final InterruptedException e) {
-                    this.failBuild(e, listener);
+                    // Sleep for 'pollInterval' seconds.
+                    // Sleep takes miliseconds so need to convert this.pollInterval
+                    // to milisecopnds (x 1000)
+                    try {
+                        Thread.sleep(this.pollInterval * 1000);
+                    } catch (final InterruptedException e) {
+                        this.failBuild(e, listener);
+                    }
                 }
             }
         }
@@ -1088,6 +1091,7 @@ public class RemoteBuildConfiguration extends Builder {
             if (JSONUtils.mayBeJSON(response.toString()) == false) {
                 listener.getLogger().println(
                         "Remote Jenkins server returned empty response or invalid JSON - but we can still proceed with the remote build.");
+                listener.getLogger().println(response.toString());
                 return null;
             } else {
                 responseObject = (JSONObject) JSONSerializer.toJSON(response.toString());
@@ -1265,16 +1269,19 @@ public class RemoteBuildConfiguration extends Builder {
         remoteServerUrl += "/job/" + encodeValue(jobName);
         remoteServerUrl += "/api/json";
 
+        boolean result = false;
         try {
-            return hasResponseActions(sendHTTPCall(remoteServerUrl, "GET", build, listener));
+            final JSONObject response = sendHTTPCall(remoteServerUrl, "GET", build, listener);
+
+            result = hasResponseActions(response.getJSONArray("actions"));
         } catch (final IOException e) {
             e.printStackTrace(listener.getLogger());
         }
-        return false;
+        listener.getLogger().println("Is RemoteJob parameterized? " + ((result) ? "yes" : "no"));
+        return result;
     }
 
-    boolean hasResponseActions(final JSONObject response) {
-        final JSONArray actions = response.getJSONArray("actions");
+    boolean hasResponseActions(final JSONArray actions) {
         for (int i = 0; i < actions.size(); i++) {
             if (!actions.getJSONObject(i).isEmpty()) {
                 return true;

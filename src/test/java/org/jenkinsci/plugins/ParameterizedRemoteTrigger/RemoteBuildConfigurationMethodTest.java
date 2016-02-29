@@ -3,6 +3,7 @@ package org.jenkinsci.plugins.ParameterizedRemoteTrigger;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import org.junit.Before;
 import org.junit.Test;
 
 import net.sf.json.JSONArray;
@@ -15,42 +16,47 @@ public class RemoteBuildConfigurationMethodTest {
 
     private static final String KEY_ACTIONS = "actions";
 
+    private RemoteBuildConfiguration remoteBuildConfiguration;
+
+    @Before
+    public void createRemoteBuildConfiguration() throws Exception {
+        remoteBuildConfiguration = new RemoteBuildConfiguration(SERVER_NAME, false, "FullName", "",
+                "", true, null, null, false, true, 1);
+    }
+
     @Test(expected = JSONException.class)
     public void testResponseActionsWrongFormat() throws Exception {
-        final RemoteBuildConfiguration remoteBuildConfiguration = createRemoteBuildConfiguration();
-        final JSONObject response = new JSONObject();
-        response.put(KEY_ACTIONS, "text");
+        final JSONArray actions = new JSONArray();
+        actions.add(new JSONArray());
 
-        remoteBuildConfiguration.hasResponseActions(response);
+        remoteBuildConfiguration.hasResponseActions(actions);
     }
 
     @Test
-    public void testResponseActionsEmpty() throws Exception {
-        final RemoteBuildConfiguration remoteBuildConfiguration = createRemoteBuildConfiguration();
-        final JSONObject response = new JSONObject();
-        final JSONArray jsonArray = new JSONArray();
-        jsonArray.add(new JSONObject());
-        jsonArray.add(new JSONObject());
-        response.put(KEY_ACTIONS, jsonArray);
+    public void testResponseActionsWithEmptyArray() throws Exception {
+        final JSONArray actions = new JSONArray();
 
-        assertFalse(remoteBuildConfiguration.hasResponseActions(response));
+        assertFalse(remoteBuildConfiguration.hasResponseActions(actions));
+    }
+
+    @Test
+    public void testResponseActionsWithEmptyObjects() throws Exception {
+        final JSONArray actions = new JSONArray();
+        actions.add(new JSONObject());
+        actions.add(new JSONObject());
+
+        assertFalse(remoteBuildConfiguration.hasResponseActions(actions));
     }
 
     @Test
     public void testResponseActionsHasValue() throws Exception {
-        final RemoteBuildConfiguration remoteBuildConfiguration = createRemoteBuildConfiguration();
-        final JSONObject response = new JSONObject();
         final JSONObject obj2 = new JSONObject();
         obj2.put(KEY_ACTIONS, SERVER_NAME);
-        final JSONArray jsonArray = new JSONArray();
-        jsonArray.add(new JSONObject());
-        jsonArray.add(obj2);
-        response.put(KEY_ACTIONS, jsonArray);
 
-        assertTrue(remoteBuildConfiguration.hasResponseActions(response));
-    }
+        final JSONArray actions = new JSONArray();
+        actions.add(new JSONObject());
+        actions.add(obj2);
 
-    private RemoteBuildConfiguration createRemoteBuildConfiguration() throws Exception {
-        return new RemoteBuildConfiguration(SERVER_NAME, false, "FullName", "", "", true, null, null, false, true, 1);
+        assertTrue(remoteBuildConfiguration.hasResponseActions(actions));
     }
 }
